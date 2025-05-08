@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-
+pragma solidity ^0.8.20;
+//26
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../virtualPersona/IAgentFactoryV3.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";

@@ -11,6 +11,9 @@ import "./GovernorCountingSimple.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
+
+//	Used to vote for instantiation of a VIRTUAL. 
+//  This DAO allows early execution of proposal as soon as quorum (10k votes) is reached.
 contract VirtualGenesisDAO is
     Governor,
     GovernorSettings,

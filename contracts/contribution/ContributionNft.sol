@@ -8,9 +8,9 @@ import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URISto
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/interfaces/IERC5805.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "./IContributionNft.sol";
+import {IContributionNft}from "./IContributionNft.sol";//modfied from `import "./IContributionNft.sol";`
 import "../virtualPersona/IAgentNft.sol";
-
+import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
 contract ContributionNft is
     IContributionNft,
     Initializable,
@@ -72,7 +72,7 @@ contract ContributionNft is
         bool isModel_,
         uint256 datasetId
     ) external returns (uint256) {
-        IGovernor personaDAO = getAgentDAO(virtualId);
+        IGovernor personaDAO = getAgentDAO(virtualId);//得到nft下virtualId对应的agentDAO
         require(
             msg.sender == personaDAO.proposalProposer(proposalId),
             "Only proposal proposer can mint Contribution NFT"
@@ -80,10 +80,12 @@ contract ContributionNft is
         require(parentId != proposalId, "Cannot be parent of itself");
 
         _mint(to, proposalId);
+        //mint后，该proposalId的owner就是to,同时无法再mint同一个proposalId的nft，也就是说其他人再伪造一个proposalId来进行攻击，除非进行frontRun，但是frontRun条件困难
+        //如果想要frontRun，则需要在你的virtual中创建一个proposalId，这个proposal和被攻击者的输入一样，
         _setTokenURI(proposalId, newTokenURI);
-        _contributionVirtualId[proposalId] = virtualId;
-        _parents[proposalId] = parentId;
-        _children[parentId].push(proposalId);
+        _contributionVirtualId[proposalId] = virtualId;//啊？这不是会重叠？我这个dao输入个一样的proposal不就得了。mitigation就是改`hashProposal`生成proposal的方法
+        _parents[proposalId] = parentId;    //proposalId=>parentId
+        _children[parentId].push(proposalId);//parentId=>proposalId
         _cores[proposalId] = coreId;
 
         if (isModel_) {

@@ -125,7 +125,8 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
         nft = nft_;
         applicationThreshold = applicationThreshold_;
         _nextId = 1;
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);// bug msg.sender could be wrong
+        // _grantRole(DEFAULT_ADMIN_ROLE,admin_);
         _vault = vault_;
     }
 
@@ -133,7 +134,7 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
         return _applications[proposalId];
     }
 
-    function proposeAgent(
+    function proposeAgent(//这个函数只检查了资产代币的余额和授权和core的长度，其他都能随意操作
         string memory name,
         string memory symbol,
         string memory tokenURI,
@@ -144,32 +145,35 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
         uint256 daoThreshold
     ) public whenNotPaused returns (uint256) {
         address sender = _msgSender();
-        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold, "Insufficient asset token");
+        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold, "Insufficient asset token");//check sender's balance >= threshold
         require(
-            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold,
+            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold,  //check sender's allowance >= threshold
             "Insufficient asset token allowance"
         );
         require(cores.length > 0, "Cores must be provided");
 
         IERC20(assetToken).safeTransferFrom(sender, address(this), applicationThreshold);
 
-        uint256 id = _nextId++;
+        uint256 id = _nextId++;//值得注意的是，它是先加1再赋值的
         uint256 proposalEndBlock = block.number; // No longer required in v2
         Application memory application = Application(
             name,
             symbol,
             tokenURI,
             ApplicationStatus.Active,
-            applicationThreshold,
-            sender,
+            applicationThreshold,//withdrawableAmount
+            sender,//proposer
             cores,
             proposalEndBlock,
-            0,
+            0,//virtualId
             tbaSalt,
             tbaImplementation,
             daoVotingPeriod,
             daoThreshold
         );
+
+
+
         _applications[id] = application;
         emit NewApplication(id);
 
@@ -192,8 +196,8 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
 
         IERC20(assetToken).safeTransfer(application.proposer, withdrawableAmount);
     }
-
-    function executeApplication(uint256 id, bool canStake) public noReentrant {
+    //@audit 小改一下，将事件return出来
+    function executeApplication(uint256 id, bool canStake) public noReentrant returns(uint256, address , address , address , address , address){
         // This will bootstrap an Agent with following components:
         // C1: Agent Token
         // C2: LP Pool + Initial liquidity
@@ -216,17 +220,18 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
 
         // C1
         address token = _createNewAgentToken(application.name, application.symbol);
+        //initialization时会给mint agent token，一部分lp supply直接mint在agentToken中，另外一部分会给agentToken的vault
 
         // C2
-        address lp = IAgentToken(token).liquidityPools()[0];
-        IERC20(assetToken).transfer(token, initialAmount);
-        IAgentToken(token).addInitialLiquidity(address(this));
+        address lp = IAgentToken(token).liquidityPools()[0];//上面token的initialization时会创建一个lp，作为assetToken和AgentToken的交易对池
+        IERC20(assetToken).transfer(token, initialAmount);//转账给agentToken合约
+        IAgentToken(token).addInitialLiquidity(address(this));//让token合约为自己的token和assetToken作为交易对添加流动性,将所有的token转给lp池中
 
         // C3
         address veToken = _createNewAgentVeToken(
             string.concat("Staked ", application.name),
             string.concat("s", application.symbol),
-            lp,
+            lp,//assetToken是lp token
             application.proposer,
             canStake
         );
@@ -270,6 +275,7 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
         IAgentVeToken(veToken).stake(IERC20(lp).balanceOf(address(this)), application.proposer, application.proposer);
 
         emit NewPersona(virtualId, token, dao, tbaAddress, veToken, lp);
+        return(virtualId, token, dao, tbaAddress, veToken, lp);//多加的
     }
 
     function _createNewDAO(
@@ -286,13 +292,13 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
     }
 
     function _createNewAgentToken(string memory name, string memory symbol) internal returns (address instance) {
-        instance = Clones.clone(tokenImplementation);
+        instance = Clones.clone(tokenImplementation);//克隆tokenImplementation的代码，并返回新合约的地址
         IAgentToken(instance).initialize(
             [_tokenAdmin, _uniswapRouter, assetToken],
             abi.encode(name, symbol),
             _tokenSupplyParams,
             _tokenTaxParams
-        );
+        );//initialization时会给mint agent token，一部分lp supply直接mint在agentToken中，另外一部分会给agentToken的vault
 
         allTradingTokens.push(instance);
         return instance;
@@ -367,8 +373,7 @@ contract AgentFactoryV2 is IAgentFactory, Initializable, AccessControl, Pausable
             maxTokensPerWallet,
             maxTokensPerTxn,
             botProtectionDurationInSeconds,
-            vault
-        );
+            vault);
     }
 
     function setTokenTaxParams(

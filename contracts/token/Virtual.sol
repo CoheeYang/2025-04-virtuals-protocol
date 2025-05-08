@@ -10,7 +10,7 @@ contract VirtualToken is ERC20Capped, Ownable {
     constructor(
         uint256 _initialSupply,
         address initialOwner
-    ) ERC20("Virtual Protocol", "VIRTUAL") ERC20Capped(1000000000 * 10 ** 18) Ownable(initialOwner) {
+    ) ERC20("Virtual Protocol", "VIRTUAL") ERC20Capped(1_000_000_000 * 10 ** 18) Ownable(initialOwner) {
         ERC20._mint(msg.sender, _initialSupply);
     }
 

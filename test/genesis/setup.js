@@ -145,7 +145,7 @@ async function setupTest() {
     console.log("OPERATION_ROLE:", OPERATION_ROLE);
     console.log("FACTORY_ROLE:", FACTORY_ROLE);
 
-    // Setup roles
+  // Setup roles
     const grantDefaultAdminTx = await fGenesis.grantRole(
       DEFAULT_ADMIN_ROLE,
       admin.address
@@ -173,7 +173,7 @@ async function setupTest() {
       beOpsWallet.address
     );
 
-    // Deploy Genesis
+  // Deploy Genesis
     console.log("\n--- Creating Genesis Instance ---");
     const currentTime = await time.latest();
     const genesisParams = {

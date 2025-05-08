@@ -22,17 +22,17 @@ contract EloCalculator is IEloCalculator, Initializable, OwnableUpgradeable {
 
     function mapBattleResultToGameResult(uint8 result) internal pure returns (uint256) {
         if (result == 1) {
-            return 100;
+            return 100; // 胜利
         } else if (result == 2) {
-            return 50;
+            return 50;// 平局
         } else if (result == 3) {
             return 50;
         }
-        return 0;
+        return 0;// 失败
     }
 
     function _roundUp(uint256 numerator, uint256 denominator) internal pure returns (uint256) {
-        return (numerator + denominator - 1) / denominator;
+        return (numerator + denominator - 1) / denominator;//0值check无
     }
 
     // Get winner elo rating

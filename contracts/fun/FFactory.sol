@@ -38,7 +38,7 @@ contract FFactory is Initializable, AccessControlUpgradeable, ReentrancyGuardUpg
         sellTax = sellTax_;
     }
 
-    function _createPair(address tokenA, address tokenB) internal returns (address) {
+    function _createPair(address tokenA, address tokenB) internal returns (address) {//tokenA是funToken，tokenB是assetToken
         require(tokenA != address(0), "Zero addresses are not allowed.");
         require(tokenB != address(0), "Zero addresses are not allowed.");
         require(router != address(0), "No router");

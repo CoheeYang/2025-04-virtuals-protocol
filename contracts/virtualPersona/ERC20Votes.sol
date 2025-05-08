@@ -9,8 +9,7 @@ import "../libs/AddressCheckpoints.sol";
 abstract contract ERC20Votes is ERC20VotesUpgradeable {
     using AddressCheckpoints for AddressCheckpoints.Trace;
     mapping(address => AddressCheckpoints.Trace) private _delegateeCheckpoints;
-
-    function _delegate(address account, address delegatee) internal override {
+     function _delegate(address account, address delegatee) internal override {
         super._delegate(account, delegatee);
         _delegateeCheckpoints[account].push(clock(), delegatee);
     }

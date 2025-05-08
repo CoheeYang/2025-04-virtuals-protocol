@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-
+pragma solidity ^0.8.20;
+//26
 struct GenesisCreationParams {
     uint256 startTime;
     uint256 endTime;

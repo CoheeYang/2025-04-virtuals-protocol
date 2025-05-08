@@ -14,7 +14,7 @@ contract FPair is IFPair, ReentrancyGuard {
     address public tokenA;
     address public tokenB;
 
-    struct Pool {
+    struct Pool {//tokenA是funToken，tokenB是assetToken
         uint256 reserve0;
         uint256 reserve1;
         uint256 k;
@@ -42,7 +42,7 @@ contract FPair is IFPair, ReentrancyGuard {
 
     event Swap(uint256 amount0In, uint256 amount0Out, uint256 amount1In, uint256 amount1Out);
 
-    function mint(uint256 reserve0, uint256 reserve1) public onlyRouter returns (bool) {
+    function mint(uint256 reserve0, uint256 reserve1) public onlyRouter returns (bool) {//从router中看，r0是funtoken,r1是assetToken
         require(_pool.lastUpdated == 0, "Already minted");
 
         _pool = Pool({reserve0: reserve0, reserve1: reserve1, k: reserve0 * reserve1, lastUpdated: block.timestamp});
@@ -52,7 +52,7 @@ contract FPair is IFPair, ReentrancyGuard {
         return true;
     }
 
-    function swap(
+    function swap(//@audit slippage protection?
         uint256 amount0In,
         uint256 amount0Out,
         uint256 amount1In,
@@ -68,7 +68,7 @@ contract FPair is IFPair, ReentrancyGuard {
         return true;
     }
 
-    function approval(address _user, address _token, uint256 amount) public onlyRouter returns (bool) {
+    function approval(address _user, address _token, uint256 amount) public onlyRouter returns (bool) {// bug approve 了只后就没见过
         require(_user != address(0), "Zero addresses are not allowed.");
         require(_token != address(0), "Zero addresses are not allowed.");
 
@@ -88,7 +88,7 @@ contract FPair is IFPair, ReentrancyGuard {
     function transferTo(address recipient, uint256 amount) public onlyRouter {
         require(recipient != address(0), "Zero addresses are not allowed.");
 
-        IERC20(tokenA).safeTransfer(recipient, amount);
+        IERC20(tokenA).safeTransfer(recipient, amount);//将funToken转给reipient
     }
 
     function getReserves() public view returns (uint256, uint256) {

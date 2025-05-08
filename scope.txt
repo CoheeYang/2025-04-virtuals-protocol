@@ -1,16 +1,16 @@
 ./contracts/AgentInference.sol
-./contracts/contribution/ContributionNft.sol
+./contracts/contribution/ContributionNft.sol  ---当Proposal发起，会mint这个这个NFT
 ./contracts/contribution/IContributionNft.sol
 ./contracts/contribution/IServiceNft.sol
-./contracts/contribution/ServiceNft.sol
-./contracts/fun/Bonding.sol
-./contracts/fun/FERC20.sol
+./contracts/contribution/ServiceNft.sol       ---Contribution被接受后会mint一个service NFT
+./contracts/fun/Bonding.sol                   --类似launch pad，可以launch发代币，让用户buy/sell，最终可以上架uniswap
+./contracts/fun/FERC20.sol                    
 ./contracts/fun/FFactory.sol
 ./contracts/fun/FPair.sol
 ./contracts/fun/FRouter.sol
 ./contracts/fun/IFPair.sol
-./contracts/genesis/FGenesis.sol
-./contracts/genesis/Genesis.sol
+./contracts/genesis/FGenesis.sol                
+./contracts/genesis/Genesis.sol                 
 ./contracts/genesis/GenesisLib.sol
 ./contracts/genesis/GenesisTypes.sol
 ./contracts/genesis/MockAgentFactoryV3.sol

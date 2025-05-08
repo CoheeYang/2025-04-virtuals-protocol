@@ -77,12 +77,12 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
     }
 
     function initialize(
-        address[3] memory integrationAddresses_,
+        address[3] memory integrationAddresses_,//  [_tokenAdmin, _uniswapRouter, assetToken],
         bytes memory baseParams_,
         bytes memory supplyParams_,
         bytes memory taxParams_
     ) external initializer {
-        _decodeBaseParams(integrationAddresses_[0], baseParams_);
+        _decodeBaseParams(integrationAddresses_[0], baseParams_);//transfer ownership to integrationAddresses_[0],decode但是没有接收output
         _uniswapRouter = IUniswapV2Router02(integrationAddresses_[1]);
         pairToken = integrationAddresses_[2];
 
@@ -90,18 +90,18 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
 
         ERC20TaxParameters memory taxParams = abi.decode(taxParams_, (ERC20TaxParameters));
 
-        _processSupplyParams(supplyParams);
+        _processSupplyParams(supplyParams);//检查supply params，max supply == vault+lp supply，并且赋值vault地址
 
         uint256 lpSupply = supplyParams.lpSupply * (10 ** decimals());
         uint256 vaultSupply = supplyParams.vaultSupply * (10 ** decimals());
 
         botProtectionDurationInSeconds = supplyParams.botProtectionDurationInSeconds;
 
-        _tokenHasTax = _processTaxParams(taxParams);
+        _tokenHasTax = _processTaxParams(taxParams);//projectBuyTaxBasisPoints 和 projectSellTaxBasisPoints 都为0是false，否则赋值
         swapThresholdBasisPoints = uint16(taxParams.taxSwapThresholdBasisPoints);
         projectTaxRecipient = taxParams.projectTaxRecipient;
 
-        _mintBalances(lpSupply, vaultSupply);
+        _mintBalances(lpSupply, vaultSupply);//mint token给这个地址，要求两个supply都大于0
 
         uniswapV2Pair = _createPair();
 
@@ -190,7 +190,7 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
      *
      * @return uniswapV2Pair_ The pair address
      */
-    function _createPair() internal returns (address uniswapV2Pair_) {
+    function _createPair() internal returns (address uniswapV2Pair_) {//ok, initialization中的
         uniswapV2Pair_ = IUniswapV2Factory(_uniswapRouter.factory()).getPair(address(this), pairToken);
 
         if (uniswapV2Pair_ == address(0)) {
@@ -244,14 +244,14 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
         IERC20(pairToken).approve(address(_uniswapRouter), type(uint256).max);
         // Add the liquidity:
         (uint256 amountA, uint256 amountB, uint256 lpTokens) = _uniswapRouter.addLiquidity(
-            address(this),
-            pairToken,
-            balanceOf(address(this)),
-            IERC20(pairToken).balanceOf(address(this)),
-            0,
-            0,
-            address(this),
-            block.timestamp
+            address(this),//tokenA
+            pairToken,//token B
+            balanceOf(address(this)),//amountADesired
+            IERC20(pairToken).balanceOf(address(this)),//amountBDesired
+            0,//min
+            0,//min
+            address(this),//swap token to this address 
+            block.timestamp//deadline
         );
 
         emit InitialLiquidityAdded(amountA, amountB, lpTokens);
@@ -495,7 +495,7 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
      * - `to` cannot be the zero address.
      * - the caller must have a balance of at least `amount`.
      */
-    function transfer(address to, uint256 amount) public virtual override(IERC20) returns (bool) {
+    function transfer(address to, uint256 amount) public virtual override(IERC20) returns (bool) {//@audit 为什么这里owner出现了shadow?
         address owner = _msgSender();
         _transfer(owner, to, amount, (isLiquidityPool(owner) || isLiquidityPool(to)));
         return true;
@@ -733,13 +733,13 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
             uint256 contractBalance = balanceOf(address(this));
             uint256 swapBalance = contractBalance;
 
-            uint256 swapThresholdInTokens = (_totalSupply * swapThresholdBasisPoints) / BP_DENOM;
+            uint256 swapThresholdInTokens = (_totalSupply * swapThresholdBasisPoints) / BP_DENOM;//阈值=总供应*阈值百分比
 
             if (_eligibleForSwap(from_, to_, swapBalance, swapThresholdInTokens)) {
                 // Store that a swap back is in progress:
                 _autoSwapInProgress = true;
                 // Check if we need to reduce the amount of tokens for this swap:
-                if (swapBalance > swapThresholdInTokens * MAX_SWAP_THRESHOLD_MULTIPLE) {
+                if (swapBalance > swapThresholdInTokens * MAX_SWAP_THRESHOLD_MULTIPLE) {//合约中的balance超过阈值的X倍，则采用最高上限来进行swap
                     swapBalance = swapThresholdInTokens * MAX_SWAP_THRESHOLD_MULTIPLE;
                 }
                 // Perform the auto swap to pair token
@@ -1007,7 +1007,7 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
      *
      * See {ERC20-_burn}.
      */
-    function burn(uint256 value) public virtual {
+    function burn(uint256 value) public virtual {//@audit anyone can burn?
         _burn(_msgSender(), value);
     }
 
@@ -1022,7 +1022,7 @@ contract AgentToken is ContextUpgradeable, IAgentToken, Ownable2StepUpgradeable 
      * - the caller must have allowance for ``accounts``'s tokens of at least
      * `value`.
      */
-    function burnFrom(address account, uint256 value) public virtual {
+    function burnFrom(address account, uint256 value) public virtual {//@audit 我能骗allowance 然后burn别人的吗？
         _spendAllowance(account, _msgSender(), value);
         _burn(account, value);
     }

@@ -98,7 +98,7 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
     bytes private _tokenTaxParams;
     uint16 private _tokenMultiplier; // Unused
 
-    bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
+    bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");//新加的
 
     ///////////////////////////////////////////////////////////////
 
@@ -178,7 +178,10 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
 
         return id;
     }
-
+    //question 我能将bonding的proposalwithdraw吗
+    //在bonding合约中不行，因为其init和执行是一起的
+    //genesis也不行，因为也是一起执行的
+    //但是不排除潜在的51% attac先bonding initFromBondingCurve，把creator写成自己再进行withdraw
     function withdraw(uint256 id) public noReentrant {
         Application storage application = _applications[id];
 
@@ -196,17 +199,138 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
         IERC20(assetToken).safeTransfer(application.proposer, withdrawableAmount);
     }
 
+
+    function executeApplication(uint256 id, bool canStake) public noReentrant {
+        // This will bootstrap an Agent with following components:
+        // C1: Agent Token
+        // C2: LP Pool + Initial liquidity
+        // C3: Agent veToken
+        // C4: Agent DAO
+        // C5: Agent NFT
+        // C6: TBA
+        // C7: Stake liquidity token to get veToken
+
+        Application storage application = _applications[id];
+
+        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
+
+        _executeApplication(id, canStake, _tokenSupplyParams);
+    }
+
+
+
+////bonding
+    function initFromBondingCurve(
+        string memory name,
+        string memory symbol,
+        uint8[] memory cores,
+        bytes32 tbaSalt,
+        address tbaImplementation,
+        uint32 daoVotingPeriod,
+        uint256 daoThreshold,
+        uint256 applicationThreshold_,
+        address creator
+    ) public whenNotPaused onlyRole(BONDING_ROLE) returns (uint256) {
+        address sender = _msgSender();
+        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold_, "Insufficient asset token");
+        require(
+            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold_,
+            "Insufficient asset token allowance"
+        );
+        require(cores.length > 0, "Cores must be provided");
+
+        IERC20(assetToken).safeTransferFrom(sender, address(this), applicationThreshold_);
+
+        uint256 id = _nextId++;
+        uint256 proposalEndBlock = block.number; // No longer required in v2
+        Application memory application = Application(
+            name,
+            symbol,
+            "",
+            ApplicationStatus.Active,
+            applicationThreshold_,
+            creator,//proposer
+            cores,
+            proposalEndBlock,
+            0,
+            tbaSalt,
+            tbaImplementation,
+            daoVotingPeriod,
+            daoThreshold
+        );
+        // string name;
+        // string symbol;
+        // string tokenURI;
+        // ApplicationStatus status;
+        // uint256 withdrawableAmount;
+        // address proposer;
+        // uint8[] cores;
+        // uint256 proposalEndBlock;
+        // uint256 virtualId;
+        // bytes32 tbaSalt;
+        // address tbaImplementation;
+        // uint32 daoVotingPeriod;
+        // uint256 daoThreshold;
+
+
+        _applications[id] = application;
+        emit NewApplication(id);
+
+        return id;
+    }
+
+    function executeBondingCurveApplication(
+        uint256 id,
+        uint256 totalSupply,
+        uint256 lpSupply,
+        address vault
+    ) public onlyRole(BONDING_ROLE) noReentrant returns (address) {
+        bytes memory tokenSupplyParams = abi.encode(
+            totalSupply,
+            lpSupply,
+            totalSupply - lpSupply,
+            totalSupply,
+            totalSupply,
+            0,
+            vault
+        );
+    //         struct ERC20SupplyParameters {
+    //     uint256 maxSupply;
+    //     uint256 lpSupply;
+    //     uint256 vaultSupply;
+    //     uint256 maxTokensPerWallet;
+    //     uint256 maxTokensPerTxn;
+    //     uint256 botProtectionDurationInSeconds;
+    //     address vault;
+    // }
+
+        _executeApplication(id, true, tokenSupplyParams);
+
+        Application memory application = _applications[id];
+
+        return IAgentNft(nft).virtualInfo(application.virtualId).token;
+    }
+
+///主要逻辑函数，如果是bonding来的则会依赖bonding的tokenSupplyParams_，如果不是则会依赖此合约的param
+      // This will bootstrap an Agent with following components:
+        // C1: Agent Token
+        // C2: LP Pool + Initial liquidity
+        // C3: Agent veToken
+        // C4: Agent DAO
+        // C5: Agent NFT
+        // C6: TBA
+        // C7: Stake liquidity token to get veToken
     function _executeApplication(uint256 id, bool canStake, bytes memory tokenSupplyParams_) internal {
         require(_applications[id].status == ApplicationStatus.Active, "Application is not active");
 
         require(_tokenAdmin != address(0), "Token admin not set");
 
         Application storage application = _applications[id];
-
-        uint256 initialAmount = application.withdrawableAmount;
+        //require少了，放在了之前进行验证
+        uint256 initialAmount = application.withdrawableAmount;//applicationThreshold_ input in `init`
         application.withdrawableAmount = 0;
-        application.status = ApplicationStatus.Executed;
-
+        application.status = ApplicationStatus.Executed;//防止withdraw
+        ////下面和v2一样
         // C1
         address token = _createNewAgentToken(application.name, application.symbol, tokenSupplyParams_);
 
@@ -261,27 +385,11 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
         // C7
         IERC20(lp).approve(veToken, type(uint256).max);
         IAgentVeToken(veToken).stake(IERC20(lp).balanceOf(address(this)), application.proposer, defaultDelegatee);
-
+        ///bug bonding这些人存的钱都是在这里被stake的，但是最后receiver是proposer
         emit NewPersona(virtualId, token, dao, tbaAddress, veToken, lp);
-    }
+    }   
 
-    function executeApplication(uint256 id, bool canStake) public noReentrant {
-        // This will bootstrap an Agent with following components:
-        // C1: Agent Token
-        // C2: LP Pool + Initial liquidity
-        // C3: Agent veToken
-        // C4: Agent DAO
-        // C5: Agent NFT
-        // C6: TBA
-        // C7: Stake liquidity token to get veToken
-
-        Application storage application = _applications[id];
-
-        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
-
-        _executeApplication(id, canStake, _tokenSupplyParams);
-    }
-
+/// Internal functions
     function _createNewDAO(
         string memory name,
         IVotes token,
@@ -334,10 +442,7 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
         return instance;
     }
 
-    function totalAgents() public view returns (uint256) {
-        return allTokens.length;
-    }
-
+//setFunctions
     function setApplicationThreshold(uint256 newThreshold) public onlyRole(DEFAULT_ADMIN_ROLE) {
         applicationThreshold = newThreshold;
         emit ApplicationThresholdUpdated(newThreshold);
@@ -402,7 +507,9 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
     function setAssetToken(address newToken) public onlyRole(DEFAULT_ADMIN_ROLE) {
         assetToken = newToken;
     }
-
+    function setDefaultDelegatee(address newDelegatee) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        defaultDelegatee = newDelegatee;
+    }
     function pause() public onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
@@ -411,6 +518,7 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
         _unpause();
     }
 
+//views
     function _msgSender() internal view override(Context, ContextUpgradeable) returns (address sender) {
         sender = ContextUpgradeable._msgSender();
     }
@@ -418,75 +526,11 @@ contract AgentFactoryV3 is IAgentFactoryV3, Initializable, AccessControl, Pausab
     function _msgData() internal view override(Context, ContextUpgradeable) returns (bytes calldata) {
         return ContextUpgradeable._msgData();
     }
-
-    function initFromBondingCurve(
-        string memory name,
-        string memory symbol,
-        uint8[] memory cores,
-        bytes32 tbaSalt,
-        address tbaImplementation,
-        uint32 daoVotingPeriod,
-        uint256 daoThreshold,
-        uint256 applicationThreshold_,
-        address creator
-    ) public whenNotPaused onlyRole(BONDING_ROLE) returns (uint256) {
-        address sender = _msgSender();
-        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold_, "Insufficient asset token");
-        require(
-            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold_,
-            "Insufficient asset token allowance"
-        );
-        require(cores.length > 0, "Cores must be provided");
-
-        IERC20(assetToken).safeTransferFrom(sender, address(this), applicationThreshold_);
-
-        uint256 id = _nextId++;
-        uint256 proposalEndBlock = block.number; // No longer required in v2
-        Application memory application = Application(
-            name,
-            symbol,
-            "",
-            ApplicationStatus.Active,
-            applicationThreshold_,
-            creator,
-            cores,
-            proposalEndBlock,
-            0,
-            tbaSalt,
-            tbaImplementation,
-            daoVotingPeriod,
-            daoThreshold
-        );
-        _applications[id] = application;
-        emit NewApplication(id);
-
-        return id;
+    
+    function totalAgents() public view returns (uint256) {
+        return allTokens.length;
     }
 
-    function executeBondingCurveApplication(
-        uint256 id,
-        uint256 totalSupply,
-        uint256 lpSupply,
-        address vault
-    ) public onlyRole(BONDING_ROLE) noReentrant returns (address) {
-        bytes memory tokenSupplyParams = abi.encode(
-            totalSupply,
-            lpSupply,
-            totalSupply - lpSupply,
-            totalSupply,
-            totalSupply,
-            0,
-            vault
-        );
 
-        _executeApplication(id, true, tokenSupplyParams);
-
-        Application memory application = _applications[id];
-
-        return IAgentNft(nft).virtualInfo(application.virtualId).token;
-    }
-
-    function setDefaultDelegatee(address newDelegatee) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        defaultDelegatee = newDelegatee;
-    }
+  
 }

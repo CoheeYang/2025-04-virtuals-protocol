@@ -115,15 +115,16 @@ contract AgentRewardV2 is IAgentReward, Initializable, AccessControl, TokenSaver
 
     function distributeRewards(uint256 amount) public onlyGov returns (uint32) {
         require(amount > 0, "Invalid amount");
-
+        //钱转到了这里
         IERC20(rewardToken).safeTransferFrom(_msgSender(), address(this), amount);
 
         RewardSettingsCheckpoints.RewardSettings memory settings = getRewardSettings();
 
+        //发两部分，一部分发给protocol，一部分发给agent
         uint256 protocolShares = _distributeProtocolRewards(amount);
 
         uint256 agentShares = amount - protocolShares;
-        _prepareAgentsRewards(agentShares, settings);
+        _prepareAgentsRewards(agentShares, settings);///将更新state variable `_rewards`合格的virtual所领取的reward和agent总reward`_mainRewards`，并返回agent的数量
         return SafeCast.toUint32(_mainRewards.length - 1);
     }
 
@@ -158,7 +159,7 @@ contract AgentRewardV2 is IAgentReward, Initializable, AccessControl, TokenSaver
             uint256 totalStaked = nft.totalStaked(virtualId);
             if (totalStaked < settings.stakeThreshold) {
                 continue;
-            }
+            }//stake足够的就给钱
 
             agentCount++;
             grandTotalStaked += totalStaked;
@@ -181,7 +182,7 @@ contract AgentRewardV2 is IAgentReward, Initializable, AccessControl, TokenSaver
     }
 
     // Calculate agent rewards based on staked weightage and distribute to all stakers, validators and contributors
-    function _distributeAgentRewards(
+    function _distributeAgentRewards(///发钱给agent组织
         uint256 virtualId,
         uint32 mainRewardIndex,
         RewardSettingsCheckpoints.RewardSettings memory settings
@@ -197,13 +198,14 @@ contract AgentRewardV2 is IAgentReward, Initializable, AccessControl, TokenSaver
             return;
         }
         // Prevent double entry
-        if (reward.validatorAmount > 0 || reward.contributorAmount > 0) {
+        if (reward.validatorAmount > 0 || reward.contributorAmount > 0) {//起始为0
             return;
         }
 
         // Calculate VIRTUAL reward based on staked weightage
         uint256 amount = (mainReward.amount * reward.totalStaked) / mainReward.totalStaked;
 
+        //按预先设定好的方法条件分
         reward.contributorAmount = (amount * uint256(settings.contributorShares)) / DENOMINATOR;
         reward.validatorAmount = amount - reward.contributorAmount;
 
@@ -379,7 +381,7 @@ contract AgentRewardV2 is IAgentReward, Initializable, AccessControl, TokenSaver
 
     function getChildrenRewards(uint256 nftId) public view returns (uint256) {
         uint256 childrenAmount = 0;
-        uint256[] memory children = IContributionNft(contributionNft).getChildren(nftId);
+        uint256[] memory children = IContributionNft(contributionNft).getChildren(nftId);////parentId=>proposalId
 
         ServiceReward memory childReward;
         for (uint256 i = 0; i < children.length; i++) {

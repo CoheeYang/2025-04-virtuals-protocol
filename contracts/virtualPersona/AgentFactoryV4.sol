@@ -71,6 +71,8 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
 
     bool internal locked;
 
+    //  address public gov; // Deprecated in v2, execution of application does not require DAO decision anymore
+
     modifier noReentrant() {
         require(!locked, "cannot reenter");
         locked = true;
@@ -115,7 +117,7 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         uint256 applicationThreshold_,
         address vault_,
         uint256 nextId_
-    ) public initializer {
+    ) public reinitializer(2)/*initializer*/{
         __Pausable_init();
 
         tokenImplementation = tokenImplementation_;
@@ -130,11 +132,8 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         _vault = vault_;
     }
 
-    function getApplication(uint256 proposalId) public view returns (Application memory) {
-        return _applications[proposalId];
-    }
 
-    function proposeAgent(
+    function proposeAgent(//v3一致
         string memory name,
         string memory symbol,
         string memory tokenURI,
@@ -192,8 +191,8 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         application.status = ApplicationStatus.Withdrawn;
 
         IERC20(assetToken).safeTransfer(application.proposer, withdrawableAmount);
-
-        address customToken = _applicationToken[id];
+    ///////////////v4增加的逻辑/////
+        address customToken = _applicationToken[id];//转掉custom Token的额度
         if (customToken != address(0)) {
             IERC20(customToken).safeTransfer(application.proposer, IERC20(customToken).balanceOf(address(this)));
 
@@ -201,6 +200,102 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
             _applicationToken[id] = address(0);
         }
     }
+
+
+    function executeApplication(uint256 id, bool canStake) public noReentrant {
+        // This will bootstrap an Agent with following components:
+        // C1: Agent Token
+        // C2: LP Pool + Initial liquidity
+        // C3: Agent veToken
+        // C4: Agent DAO
+        // C5: Agent NFT
+        // C6: TBA
+        // C7: Stake liquidity token to get veToken
+
+        Application storage application = _applications[id];
+
+        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
+
+        _executeApplication(id, canStake, _tokenSupplyParams);
+    }
+
+
+
+    // Bootstrap Agent with existing ERC20 tokens
+    function initFromToken(
+        address tokenAddr,
+        uint8[] memory cores,
+        bytes32 tbaSalt,
+        address tbaImplementation,
+        uint32 daoVotingPeriod,
+        uint256 daoThreshold,
+        uint256 initialLP
+    ) public whenNotPaused returns (uint256) {
+        address sender = _msgSender();
+        require(_tokenApplication[tokenAddr] == 0, "Token already exists");
+
+        require(isCompatibleToken(tokenAddr), "Unsupported token");///这里可以被跳过
+
+        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold, "Insufficient asset token");
+
+        require(
+            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold,
+            "Insufficient asset token allowance"
+        );
+
+        require(cores.length > 0, "Cores must be provided");
+
+        require(initialLP > 0, "InitialLP must be greater than 0");
+
+        IERC20(tokenAddr).safeTransferFrom(sender, address(this), initialLP);////@audit dangerous external call 
+
+        IERC20(assetToken).safeTransferFrom(sender, address(this), applicationThreshold);
+
+        uint256 id = _nextId++;
+        _tokenApplication[tokenAddr] = id;
+        _applicationToken[id] = tokenAddr;
+
+        Application memory application = Application(
+            IAgentToken(tokenAddr).name(),
+            IAgentToken(tokenAddr).symbol(),
+            "",
+            ApplicationStatus.Active,
+            applicationThreshold,
+            sender,
+            cores,
+            block.number,
+            0,
+            tbaSalt,
+            tbaImplementation,
+            daoVotingPeriod,
+            daoThreshold
+        );
+        _applications[id] = application;
+        emit NewApplication(id);
+
+        return id;
+    }
+
+    function executeTokenApplication(uint256 id, bool canStake) public noReentrant {
+        // This will bootstrap an Agent with following components:
+        // C2: LP Pool + Initial liquidity
+        // C3: Agent veToken
+        // C4: Agent DAO
+        // C5: Agent NFT
+        // C6: TBA
+        // C7: Stake liquidity token to get veToken
+
+        Application storage application = _applications[id];
+
+        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
+
+        require(_applicationToken[id] != address(0), "Not custom token application");
+
+        _executeApplication(id, canStake, _tokenSupplyParams);
+    }
+
+
+
 
     function _executeApplication(uint256 id, bool canStake, bytes memory tokenSupplyParams_) internal {
         require(_applications[id].status == ApplicationStatus.Active, "Application is not active");
@@ -212,7 +307,7 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         uint256 initialAmount = application.withdrawableAmount;
         application.withdrawableAmount = 0;
         application.status = ApplicationStatus.Executed;
-
+        ///////////////////////////////////
         // C1 & C2
         address token = _applicationToken[id];
         address lp = address(0);
@@ -238,7 +333,7 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
                 block.timestamp
             );
         }
-
+        //////////////////////////////////
         // C3
         address veToken = _createNewAgentVeToken(
             string.concat("Staked ", application.name),
@@ -287,23 +382,6 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         IAgentVeToken(veToken).stake(IERC20(lp).balanceOf(address(this)), application.proposer, defaultDelegatee);
 
         emit NewPersona(virtualId, token, dao, tbaAddress, veToken, lp);
-    }
-
-    function executeApplication(uint256 id, bool canStake) public noReentrant {
-        // This will bootstrap an Agent with following components:
-        // C1: Agent Token
-        // C2: LP Pool + Initial liquidity
-        // C3: Agent veToken
-        // C4: Agent DAO
-        // C5: Agent NFT
-        // C6: TBA
-        // C7: Stake liquidity token to get veToken
-
-        Application storage application = _applications[id];
-
-        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
-
-        _executeApplication(id, canStake, _tokenSupplyParams);
     }
 
     function _createNewDAO(
@@ -358,10 +436,51 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
         return instance;
     }
 
-    function totalAgents() public view returns (uint256) {
+
+    function _createPair(address tokenAddr) internal returns (address uniswapV2Pair_) {
+        IUniswapV2Factory factory = IUniswapV2Factory(IUniswapV2Router02(_uniswapRouter).factory());
+
+        require(factory.getPair(tokenAddr, assetToken) == address(0), "pool already exists");
+
+        uniswapV2Pair_ = factory.createPair(tokenAddr, assetToken);
+
+        return (uniswapV2Pair_);
+    }
+//////////view
+    function isCompatibleToken(address tokenAddr) public view returns (bool) {
+        try IAgentToken(tokenAddr).name() returns (string memory) {
+            try IAgentToken(tokenAddr).symbol() returns (string memory) {
+                try IAgentToken(tokenAddr).totalSupply() returns (uint256) {
+                    try IAgentToken(tokenAddr).balanceOf(address(this)) returns (uint256) {///@audit !!!遇见其他的伪造的代币都能跳过该流程了
+                        return true;
+                    } catch {
+                        return false;
+                    }
+                } catch {
+                    return false;
+                }
+            } catch {
+                return false;
+            }
+        } catch {
+            return false;
+        }
+    }
+        function totalAgents() public view returns (uint256) {
         return allTokens.length;
     }
 
+        
+    function getApplication(uint256 proposalId) public view returns (Application memory) {
+        return _applications[proposalId];
+    }
+
+    //@audit add by me
+    function getTokenApplication(address tokenAddr) public view returns (uint256) {
+        return _tokenApplication[tokenAddr];
+    }
+
+//////set function
     function setApplicationThreshold(uint256 newThreshold) public onlyRole(DEFAULT_ADMIN_ROLE) {
         applicationThreshold = newThreshold;
         emit ApplicationThresholdUpdated(newThreshold);
@@ -445,108 +564,5 @@ contract AgentFactoryV4 is IAgentFactoryV4, Initializable, AccessControl, Pausab
 
     function setDefaultDelegatee(address newDelegatee) public onlyRole(DEFAULT_ADMIN_ROLE) {
         defaultDelegatee = newDelegatee;
-    }
-
-    // Bootstrap Agent with existing ERC20 tokens
-    function initFromToken(
-        address tokenAddr,
-        uint8[] memory cores,
-        bytes32 tbaSalt,
-        address tbaImplementation,
-        uint32 daoVotingPeriod,
-        uint256 daoThreshold,
-        uint256 initialLP
-    ) public whenNotPaused returns (uint256) {
-        address sender = _msgSender();
-        require(_tokenApplication[tokenAddr] == 0, "Token already exists");
-
-        require(isCompatibleToken(tokenAddr), "Unsupported token");
-
-        require(IERC20(assetToken).balanceOf(sender) >= applicationThreshold, "Insufficient asset token");
-
-        require(
-            IERC20(assetToken).allowance(sender, address(this)) >= applicationThreshold,
-            "Insufficient asset token allowance"
-        );
-
-        require(cores.length > 0, "Cores must be provided");
-
-        require(initialLP > 0, "InitialLP must be greater than 0");
-
-        IERC20(tokenAddr).safeTransferFrom(sender, address(this), initialLP);
-
-        IERC20(assetToken).safeTransferFrom(sender, address(this), applicationThreshold);
-
-        uint256 id = _nextId++;
-        _tokenApplication[tokenAddr] = id;
-        _applicationToken[id] = tokenAddr;
-
-        Application memory application = Application(
-            IAgentToken(tokenAddr).name(),
-            IAgentToken(tokenAddr).symbol(),
-            "",
-            ApplicationStatus.Active,
-            applicationThreshold,
-            sender,
-            cores,
-            block.number,
-            0,
-            tbaSalt,
-            tbaImplementation,
-            daoVotingPeriod,
-            daoThreshold
-        );
-        _applications[id] = application;
-        emit NewApplication(id);
-
-        return id;
-    }
-
-    function executeTokenApplication(uint256 id, bool canStake) public noReentrant {
-        // This will bootstrap an Agent with following components:
-        // C2: LP Pool + Initial liquidity
-        // C3: Agent veToken
-        // C4: Agent DAO
-        // C5: Agent NFT
-        // C6: TBA
-        // C7: Stake liquidity token to get veToken
-
-        Application storage application = _applications[id];
-
-        require(msg.sender == application.proposer || hasRole(WITHDRAW_ROLE, msg.sender), "Not proposer");
-
-        require(_applicationToken[id] != address(0), "Not custom token application");
-
-        _executeApplication(id, canStake, _tokenSupplyParams);
-    }
-
-    function isCompatibleToken(address tokenAddr) public view returns (bool) {
-        try IAgentToken(tokenAddr).name() returns (string memory) {
-            try IAgentToken(tokenAddr).symbol() returns (string memory) {
-                try IAgentToken(tokenAddr).totalSupply() returns (uint256) {
-                    try IAgentToken(tokenAddr).balanceOf(address(this)) returns (uint256) {
-                        return true;
-                    } catch {
-                        return false;
-                    }
-                } catch {
-                    return false;
-                }
-            } catch {
-                return false;
-            }
-        } catch {
-            return false;
-        }
-    }
-
-    function _createPair(address tokenAddr) internal returns (address uniswapV2Pair_) {
-        IUniswapV2Factory factory = IUniswapV2Factory(IUniswapV2Router02(_uniswapRouter).factory());
-
-        require(factory.getPair(tokenAddr, assetToken) == address(0), "pool already exists");
-
-        uniswapV2Pair_ = factory.createPair(tokenAddr, assetToken);
-
-        return (uniswapV2Pair_);
     }
 }

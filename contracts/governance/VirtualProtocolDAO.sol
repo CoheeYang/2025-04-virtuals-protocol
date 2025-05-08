@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
 import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import "./GovernorCountingSimple.sol";
 
+//Regular DAO to maintain the VIRTUAL ecosystem
 contract VirtualProtocolDAO is
     Governor,
     GovernorSettings,

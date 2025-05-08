@@ -120,6 +120,7 @@ contract BondingTax is Initializable, AccessControlUpgradeable, IBondingTax {
     }
 
     function swapForAsset() public onlyBondingRouter returns (bool, uint256) {
+        //当Router中buy/sell 将手续费的assetToken转入到此时，会触发该函数
         uint256 amount = IERC20(taxToken).balanceOf(address(this));
 
         require(amount > 0, "Nothing to be swapped");
@@ -127,6 +128,9 @@ contract BondingTax is Initializable, AccessControlUpgradeable, IBondingTax {
         if (amount < minSwapThreshold) {
             return (false, 0);
         }
+        //当taxToken(veToken)的数量大于等于最小阈值时，进行swap
+        //该swap将会把veToken换成一种assetToken，比如USDC
+        //此时将veToken价格下降，所以我可以一直买卖来做空套利
 
         if (amount > maxSwapThreshold) {
             amount = maxSwapThreshold;

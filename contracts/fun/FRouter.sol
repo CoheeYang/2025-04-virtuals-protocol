@@ -38,7 +38,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgr
         assetToken = assetToken_;
     }
 
-    function getAmountsOut(
+    function getAmountsOut( //bug 如果k的乘积和newReserveA*newReserveB不相等,则会出现买0卖0的问题
         address token,
         address assetToken_,
         uint256 amountIn
@@ -51,14 +51,14 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgr
 
         (uint256 reserveA, uint256 reserveB) = pair.getReserves();
 
-        uint256 k = pair.kLast();
+        uint256 k = pair.kLast();//得到最近的k值，k = newReserveA * newReserveB
 
         uint256 amountOut;
 
-        if (assetToken_ == assetToken) {
+        if (assetToken_ == assetToken) {//此时为buy的行为，算出fERC20的amountOut，即reserveA，funToken
             uint256 newReserveB = reserveB + amountIn;
 
-            uint256 newReserveA = k / newReserveB;
+            uint256 newReserveA = k / newReserveB;//question?有没有可能会出现 k<reserveB的情况，不会因为是这俩乘积
 
             amountOut = reserveA - newReserveA;
         } else {
@@ -116,13 +116,13 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgr
         uint256 amount = amountOut - txFee;
         address feeTo = factory.taxVault();
 
-        pair.transferAsset(to, amount);
+        pair.transferAsset(to, amount);//从pair中转出assetToken
         pair.transferAsset(feeTo, txFee);
 
-        pair.swap(amountIn, 0, 0, amountOut);
+        pair.swap(amountIn, 0, 0, amountOut);//只记录不处理，funToken in amountIn, assetToken out amountOut
 
-        if (feeTo == taxManager) {
-            IBondingTax(taxManager).swapForAsset();
+        if (feeTo == taxManager) {//手续费（assetToken）转到bondingTax
+            IBondingTax(taxManager).swapForAsset();//会自动地将veToken转为另外一种assetToken
         }
 
         return (amountIn, amountOut);
@@ -145,17 +145,17 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgr
 
         uint256 amount = amountIn - txFee;
 
-        IERC20(assetToken).safeTransferFrom(to, pair, amount);
+        IERC20(assetToken).safeTransferFrom(to, pair, amount);//assetToken部分转到pair合约中
 
-        IERC20(assetToken).safeTransferFrom(to, feeTo, txFee);
+        IERC20(assetToken).safeTransferFrom(to, feeTo, txFee);//手续费转到feeTo
 
-        uint256 amountOut = getAmountsOut(tokenAddress, assetToken, amount);
+        uint256 amountOut = getAmountsOut(tokenAddress, assetToken, amount);//
 
-        IFPair(pair).transferTo(to, amountOut);
+        IFPair(pair).transferTo(to, amountOut);//从pair中转出fToken
 
-        IFPair(pair).swap(0, amountOut, amount, 0);
+        IFPair(pair).swap(0, amountOut, amount, 0);//更新pool中的数据，funToken reserve -amountOut, assetToken reserve +amount
 
-        if (feeTo == taxManager) {
+        if (feeTo == taxManager) {//手续费（assetToken）转到bondingTax
             IBondingTax(taxManager).swapForAsset();
         }
 
@@ -169,7 +169,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgr
         FPair(pair).transferAsset(msg.sender, assetBalance);
     }
 
-    function approval(
+    function approval(//CALLED WHEN graduate
         address pair,
         address asset,
         address spender,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
-
+pragma solidity ^0.8.20;
+//26
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -112,7 +112,7 @@ contract Genesis is ReentrancyGuard, AccessControlUpgradeable {
     }
 
     // Combined state checks
-    modifier whenActive() {
+    modifier whenActive() {//开始，没结束，没失败没取消
         require(isStarted(), ERR_NOT_STARTED);
         require(!isEnded(), ERR_ALREADY_ENDED);
         require(!isFailed, ERR_ALREADY_FAILED);
@@ -155,7 +155,7 @@ contract Genesis is ReentrancyGuard, AccessControlUpgradeable {
         genesisId = params.genesisID;
         factory = FGenesis(params.factory); // the FGenesis Proxy
         startTime = params.startTime;
-        endTime = params.endTime;
+        endTime = params.endTime;//genesis截止时间
         genesisName = params.genesisName;
         genesisTicker = params.genesisTicker;
         genesisCores = params.genesisCores;
@@ -175,7 +175,7 @@ contract Genesis is ReentrancyGuard, AccessControlUpgradeable {
     }
 
     function participate(uint256 pointAmt, uint256 virtualsAmt) external nonReentrant whenActive {
-        require(pointAmt > 0, "Point amount must be greater than 0");
+        require(pointAmt > 0, "Point amount must be greater than 0");//这个基本没用 
         require(virtualsAmt > 0, "Virtuals must be greater than 0");
 
         // Check single submission upper limit
@@ -340,7 +340,7 @@ contract Genesis is ReentrancyGuard, AccessControlUpgradeable {
         }
 
         // when all participants have been refunded, set the genesis to failed
-        if (refundUserCountForFailed == participants.length) {
+        if (refundUserCountForFailed == participants.length) {//@audit 有没有可能出现mismatch? 左边只在这里进行，右边在participant中可以增加
             isFailed = true;
             emit GenesisFailed(genesisId);
         }

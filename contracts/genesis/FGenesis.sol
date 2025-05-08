@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.20;
+//26
 
 import {Genesis} from "./Genesis.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "../virtualPersona/AgentFactoryV3.sol";
+import {AgentFactoryV3} from "../virtualPersona/AgentFactoryV3.sol";//@audit 加了
 import "./GenesisTypes.sol";
 import "./GenesisLib.sol";
-import "../virtualPersona/AgentFactoryV3.sol";
+
 
 contract FGenesis is Initializable, AccessControlUpgradeable {
     using GenesisLib for *;
@@ -73,6 +74,7 @@ contract FGenesis is Initializable, AccessControlUpgradeable {
         params = p;
     }
 
+    //创建新的Genesis合约并让factory绑定地址
     function createGenesis(GenesisCreationParams memory gParams) external returns (address) {
         require(
             IERC20(params.virtualToken).transferFrom(msg.sender, params.feeAddr, params.feeAmt),
@@ -82,7 +84,7 @@ contract FGenesis is Initializable, AccessControlUpgradeable {
         gParams.endTime = gParams.startTime + params.duration;
 
         genesisID++;
-        address addr = GenesisLib.validateAndDeploy(
+        address addr = GenesisLib.validateAndDeploy(//genesis address
             genesisID,
             address(this),
             gParams,

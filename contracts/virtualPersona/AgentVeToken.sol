@@ -1,16 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20VotesUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpgradeable.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
-import "./IAgentVeToken.sol";
-import "./IAgentNft.sol";
-import "./ERC20Votes.sol";
-import "@openzeppelin/contracts/access/IAccessControl.sol";
+import {IAgentVeToken} from "./IAgentVeToken.sol";
+import {IAgentNft} from "./IAgentNft.sol";
+import {ERC20Votes} from "./ERC20Votes.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
+    //继承了ERC20Upgradeable
+    //继承了ERC20Votes->ERC20VotesUpgradeable
+    //                ->VotesUpgradeable
+
+
     using SafeERC20 for IERC20;
     using Checkpoints for Checkpoints.Trace208;
 
@@ -50,14 +57,16 @@ contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
 
         founder = _founder;
         matureAt = _matureAt;
-        assetToken = _assetToken;
+        assetToken = _assetToken;//factory中是lp token，而非外部token
         agentNft = _agentNft;
         canStake = _canStake;
     }
 
     // Stakers have to stake their tokens and delegate to a validator
+    //在factory新建App时，会将agentToken和assetToken的lp池的lp token在这里stake, 后面输入的两个地址均为proposer
+    //stake amount是IERC20(lp).balanceOf(address(this))
     function stake(uint256 amount, address receiver, address delegatee) public {
-        require(canStake || totalSupply() == 0, "Staking is disabled for private agent"); // Either public or first staker
+        require(canStake || totalSupply() == 0, "Staking is disabled for private agent"); // Either public or first staker，first staker会在工厂中创建成为proposer本人
 
         address sender = _msgSender();
         require(amount > 0, "Cannot stake 0");
@@ -65,7 +74,7 @@ contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
         require(IERC20(assetToken).allowance(sender, address(this)) >= amount, "Insufficient asset token allowance");
 
         IAgentNft registry = IAgentNft(agentNft);
-        uint256 virtualId = registry.stakingTokenToVirtualId(address(this));
+        uint256 virtualId = registry.stakingTokenToVirtualId(address(this));//ok
 
         require(!registry.isBlacklisted(virtualId), "Agent Blacklisted");
 
@@ -76,9 +85,21 @@ contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
         registry.addValidator(virtualId, delegatee);
 
         IERC20(assetToken).safeTransferFrom(sender, address(this), amount);
-        _mint(receiver, amount);
-        _delegate(receiver, delegatee);
+        _mint(receiver, amount);//和一般erc20一样
+
+
+        //ERC20Votes._delegate(address account, address delegatee)->call
+        //VotesUpgradeable._delegate(address account, address delegatee)->call
+        // 更新了`VotesUpgradeable中的`$._delegatee[account] = delegatee;
+        //以及 $._delegateCheckpoints[oldAccount]减少，$._delegateCheckpoints[NewAccount]减少
+        _delegate(receiver, delegatee);//这段逻辑是更新votesUpgradeable中的存储，而delegate函数是公共的，也可以改变存储信息
+
+
+
         _balanceCheckpoints[receiver].push(clock(), SafeCast.toUint208(balanceOf(receiver)));
+        //非常区奇怪，它改变的是_balanceCheckpoints这里的存储，而在`AgentDao::propose()`中找投票的是使用` uint256 proposerVotes = getVotes(proposer, clock() - 1);`,
+        //而这个getVotes最终会call veToken.getPastVotes:这是来自VotesUpgradeable合约的函数，其找的是`0xe8b26c30fad74198956032a3533d903385d56dd795af560196f9c78d4af40d00`存储位置的数据
+     
     }
 
     function setCanStake(bool _canStake) public {
@@ -93,10 +114,12 @@ contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
     }
 
     function withdraw(uint256 amount) public noReentrant {
+        //check 0 attack
+        //front run?
         address sender = _msgSender();
         require(balanceOf(sender) >= amount, "Insufficient balance");
 
-        if ((sender == founder) && ((balanceOf(sender) - amount) < initialLock)) {
+        if ((sender == founder) && ((balanceOf(sender) - amount) < initialLock)) {//要求founder的不能提早抽出，但是founder可以通过withdraw 0来更新日期
             require(block.timestamp >= matureAt, "Not mature yet");
         }
 
@@ -111,11 +134,11 @@ contract AgentVeToken is IAgentVeToken, ERC20Upgradeable, ERC20Votes {
         if (timepoint >= currentTimepoint) {
             revert ERC5805FutureLookup(timepoint, currentTimepoint);
         }
-        return _balanceCheckpoints[account].upperLookupRecent(SafeCast.toUint48(timepoint));
+        return _balanceCheckpoints[account].upperLookupRecent(SafeCast.toUint48(timepoint));//找到最近的balance
     }
 
     // This is non-transferable token
-    function transfer(address /*to*/, uint256 /*value*/) public override returns (bool) {
+    function transfer(address /*to*/, uint256 /*value*/) public override returns (bool) {//@audit 我能通过跨链等手段转移token吗？或者proposal来转移token吗？
         revert("Transfer not supported");
     }
 

@@ -1,0 +1,15 @@
+{
+   
+    "solidity.defaultCompiler": "hardhat",
+  
+   
+    "solidity.packageDefaultDependenciesDirectory": "",
+  
+   
+    "solidity.includePath": ["node_modules"],
+  
+    
+    "solidity.remappings": [
+      "@openzeppelin/=node_modules/@openzeppelin/"
+    ]
+  }

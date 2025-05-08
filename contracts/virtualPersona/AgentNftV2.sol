@@ -6,14 +6,14 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC5805} from "@openzeppelin/contracts/interfaces/IERC5805.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {IERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";//@audit 加了
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/interfaces/IERC5805.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./IAgentNft.sol";
 import "./CoreRegistry.sol";
 import "./ValidatorRegistry.sol";
-import "./IAgentDAO.sol";
+import {IAgentDAO} from "./IAgentDAO.sol";
 
 contract AgentNftV2 is
     IAgentNft,
@@ -81,7 +81,8 @@ contract AgentNftV2 is
     function nextVirtualId() public view returns (uint256) {
         return _nextVirtualId;
     }
-
+    
+    ///mint to vault contract
     function mint(
         uint256 virtualId,
         address to,
@@ -89,10 +90,10 @@ contract AgentNftV2 is
         address payable theDAO,
         address founder,
         uint8[] memory coreTypes,
-        address pool,
-        address token
+        address pool,//lp address
+        address token//agent token
     ) external onlyRole(MINTER_ROLE) returns (uint256) {
-        require(virtualId == _nextVirtualId, "Invalid virtualId");
+        require(virtualId == _nextVirtualId, "Invalid virtualId");//
         _nextVirtualId++;
         _mint(to, virtualId);
         _setTokenURI(virtualId, newTokenURI);
@@ -107,21 +108,21 @@ contract AgentNftV2 is
         lp.pool = pool;
         lp.veToken = address(daoToken);
 
-        _stakingTokenToVirtualId[address(daoToken)] = virtualId;
+        _stakingTokenToVirtualId[address(daoToken)] = virtualId;//confirmed staking token 是veToken而不是lp token
         _addValidator(virtualId, founder);
         _initValidatorScore(virtualId, founder);
         return virtualId;
     }
 
-    function addCoreType(string memory label) public onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addCoreType(string memory label) public onlyRole(DEFAULT_ADMIN_ROLE) {//ok
         super._addCoreType(label);
     }
 
-    function virtualInfo(uint256 virtualId) public view returns (VirtualInfo memory) {
+    function virtualInfo(uint256 virtualId) public view returns (VirtualInfo memory) {//ok covered in test
         return virtualInfos[virtualId];
     }
 
-    function virtualLP(uint256 virtualId) public view returns (VirtualLP memory) {
+    function virtualLP(uint256 virtualId) public view returns (VirtualLP memory) {//  covered in test
         return virtualLPs[virtualId];
     }
 
@@ -130,7 +131,7 @@ contract AgentNftV2 is
         return _stakingTokenToVirtualId[stakingToken];
     }
 
-    function addValidator(uint256 virtualId, address validator) public {
+    function addValidator(uint256 virtualId, address validator) public {//@audit 什么人都能加？bug
         if (isValidator(virtualId, validator)) {
             return;
         }
@@ -154,47 +155,47 @@ contract AgentNftV2 is
         return dao.getPastScore(account, timepoint);
     }
 
-    function totalProposals(uint256 virtualId) public view returns (uint256) {
+    function totalProposals(uint256 virtualId) public view returns (uint256) {//ok  covered in test
         VirtualInfo memory info = virtualInfos[virtualId];
         IAgentDAO dao = IAgentDAO(info.dao);
         return dao.proposalCount();
     }
-
-    function setCoreTypes(uint256 virtualId, uint8[] memory coreTypes) external onlyVirtualDAO(virtualId) {
+    //DAO的权利函数
+    function setCoreTypes(uint256 virtualId, uint8[] memory coreTypes) external onlyVirtualDAO(virtualId) {//ok
         VirtualInfo storage info = virtualInfos[virtualId];
         info.coreTypes = coreTypes;
         emit CoresUpdated(virtualId, coreTypes);
     }
-
-    function setTokenURI(uint256 virtualId, string memory newTokenURI) public onlyVirtualDAO(virtualId) {
+    ////DAO的权利函数
+    function setTokenURI(uint256 virtualId, string memory newTokenURI) public onlyVirtualDAO(virtualId) {//ok
         return _setTokenURI(virtualId, newTokenURI);
     }
 
-    function setTBA(uint256 virtualId, address tba) external onlyRole(MINTER_ROLE) {
+    function setTBA(uint256 virtualId, address tba) external onlyRole(MINTER_ROLE) {//ok,在工厂中使用过了
         VirtualInfo storage info = virtualInfos[virtualId];
         require(info.tba == address(0), "TBA already set");
         info.tba = tba;
     }
-
-    function setDAO(uint256 virtualId, address newDAO) public {
+    //DAO的权利函数 @audit 和migratory中会不会有问题？
+    function setDAO(uint256 virtualId, address newDAO) public {//ok
         require(_msgSender() == virtualInfos[virtualId].dao, "Caller is not VIRTUAL DAO");
         VirtualInfo storage info = virtualInfos[virtualId];
         info.dao = newDAO;
     }
 
-    function totalStaked(uint256 virtualId) public view returns (uint256) {
+    function totalStaked(uint256 virtualId) public view returns (uint256) {//ok
         return IERC20(virtualLPs[virtualId].veToken).totalSupply();
     }
 
-    function getVotes(uint256 virtualId, address validator) public view returns (uint256) {
+    function getVotes(uint256 virtualId, address validator) public view returns (uint256) {//基本Ok
         return IERC5805(virtualLPs[virtualId].veToken).getVotes(validator);
     }
 
-    function getContributionNft() public view returns (address) {
+    function getContributionNft() public view returns (address) {//ok
         return _contributionNft;
     }
 
-    function getServiceNft() public view returns (address) {
+    function getServiceNft() public view returns (address) {//ok
         return _serviceNft;
     }
 
@@ -240,21 +241,21 @@ contract AgentNftV2 is
         _migrateScoreFunctions(_validatorScoreOf, totalProposals, _getPastValidatorScore);
     }
 
-    function setEloCalculator(address eloCalculator) public onlyRole(ADMIN_ROLE) {
+    function setEloCalculator(address eloCalculator) public onlyRole(ADMIN_ROLE) {//ok
         _eloCalculator = eloCalculator;
     }
 
-    function getEloCalculator() public view returns (address) {
+    function getEloCalculator() public view returns (address) {//ok
         return _eloCalculator;
     }
 
-    function migrateVirtual(
+    function migrateVirtual(///! virtual info 和 virtual lp都可以被修改
         uint256 virtualId,
         address dao,
         address token,
         address pool,
         address veToken
-    ) public onlyRole(ADMIN_ROLE) {
+    ) public onlyRole(ADMIN_ROLE) {//ok, used in AgentMigrator
         VirtualInfo storage info = virtualInfos[virtualId];
         info.dao = dao;
         info.token = token;
